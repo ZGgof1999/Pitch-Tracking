@@ -95,7 +95,7 @@ void NewProjectAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
-    ekf.prepare((float)sampleRate, samplesPerBlock);     //prepare pitch tracker
+    ekf.prepare((float)sampleRate, nSamples);     //prepare pitch tracker
     prevBufferSilent = true;                             //set buffer flag
     nBuffer = 0;
     for(int i = 0; i < pitchSize; i++){
@@ -133,61 +133,65 @@ bool NewProjectAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
 }
 #endif
 
-void NewProjectAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+void NewProjectAudioProcessor::detectPitch(const juce::dsp::AudioBlock<float>& block)
 {
-    //Hoe many input channels?
-    const int numInputChannels = buffer.getNumChannels();
-    // How many samples in the buffer for this block?
-    const int numSamples = buffer.getNumSamples();
+    if (block.getNumChannels() < 1)
+        return;
     
+    const float* input = block.getChannelPointer(0);
+    int offset = nSamples - block.getNumSamples();
+    juce::FloatVectorOperations::copy(buffer, buffer + block.getNumSamples(), nSamples - block.getNumSamples());
+    for (int s = 0; s < block.getNumSamples(); s++)
+        buffer[offset + s] = input[s];
+    numReady += block.getNumSamples();
+    if (numReady < 0.5f * nSamples)
+        return;
     
-    for (int channel = 0; channel < numInputChannels; ++channel)
+    numReady -= 0.5f * nSamples;
+    
+    curBufferSilent = ekf.detectSilence(buffer);
+    
+    if ((prevBufferSilent && !curBufferSilent) || ((nBuffer >= nBufferToReset) && !curBufferSilent))
     {
-        const float* channelData = buffer.getReadPointer(0);
-        float f0;
-        
-        //we are dealing with single channel data here for pitch detection
-        if (channel == 0){
-            
-            //check if current audio buffer is silent or pitched
-            curBufferSilent = ekf.detectSilence(channelData);
-            
-            //if there is an onset, reset the filter
-            if ((prevBufferSilent && !curBufferSilent)
-                || ((nBuffer >= nBufferToReset) && !curBufferSilent))
-            {
-                ekf.findInitialPitch(channelData);
-                ekf.resetCovarianceMatrix();
-                nBuffer = 0;
-                //std::cout << "Kalman filter reset" << std::endl;
-            }
-            
-           
-            //update the pitch every uUpdate samples, otherwise too slow
-            for (int i = 0; i < numSamples; i+=nUpdate)
-            {
-                if (pitchIndex >= pitchSize){
-                    pitchIndex = 0;
-                    nextPitchBlockReady = true;
-                }
-                if (curBufferSilent){
-                    pitch[pitchIndex++] = 0.0f;
-                }
-                else{
-                    f0 = ekf.kalmanFilter(channelData[i]);
-                    pitch[pitchIndex++] = f0 < minPitch ? 0.0f : f0;
-                }
-                //std::cout << pitch[pitchIndex] << std::endl;
-                
-            }
-            nBuffer++;
-            
-            prevBufferSilent = curBufferSilent;
-        }
+        ekf.findInitialPitch(buffer);
+        ekf.resetCovarianceMatrix();
+        nBuffer = 0;
     }
     
-}
+    for (int i = 0; i < nSamples; i+=nUpdate)
+    {
+        if (pitchIndex >= pitchSize)
+        {
+            pitchIndex = 0;
+            nextPitchBlockReady = true;
+        }
+        if (curBufferSilent)
+        {
+            pitch[pitchIndex++] = 0.0f;
+        }
+        else
+        {
+            float f0 = ekf.kalmanFilter(buffer[i]);
+            pitch[pitchIndex++] = f0 < minPitch ? 0.0f : f0;
+        }
+    }
+    nBuffer++;
     
+    prevBufferSilent = curBufferSilent;
+}
+
+void NewProjectAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+{
+    juce::dsp::AudioBlock<float> block(buffer);
+    int offset = 0;
+    int max = nSamples * 0.5f;
+    while (offset < block.getNumSamples())
+    {
+        int num = juce::jmin(max, static_cast<int>(block.getNumSamples() - offset));
+        detectPitch(block.getSubBlock(offset, num));
+        offset += num;
+    }
+}
 
 //==============================================================================
 bool NewProjectAudioProcessor::hasEditor() const

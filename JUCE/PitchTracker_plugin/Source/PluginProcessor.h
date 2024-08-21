@@ -30,6 +30,7 @@ public:
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
    #endif
 
+    void detectPitch(const juce::dsp::AudioBlock<float>& block);
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     //==============================================================================
@@ -58,6 +59,7 @@ public:
     
     enum
     {
+        nSamples = 512,
         pitchSize = 128,        //size of pitch to be stored
         nBufferToReset = 20,    // reset the filter after these many buffers
         nUpdate =  4,           //update KF every nUpdate samples, must be a divisor of bufferSize
@@ -67,7 +69,8 @@ public:
     
     bool nextPitchBlockReady = false;
     float pitch [pitchSize];        //pitch values
-
+    float buffer [nSamples];
+    int numReady { 0 };
 private:
     EKFPitch ekf;           //instance of pitch tracker class
     

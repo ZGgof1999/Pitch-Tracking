@@ -10,7 +10,7 @@
 
 #pragma once
 #include "JuceHeader.h"
-#include <Eigen/Dense>
+#include "Eigen/Dense"
 #include <complex>
 #include <cmath>
 

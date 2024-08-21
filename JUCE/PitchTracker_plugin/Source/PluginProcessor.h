@@ -10,7 +10,7 @@
 
 #include <JuceHeader.h>
 #include "EKFPitch.h"
-#include <Eigen/Dense>
+#include "Eigen/Dense"
 
 //==============================================================================
 /**
